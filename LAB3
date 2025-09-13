@@ -1,0 +1,85 @@
+section .data
+    n dd 5
+    seis dd 6
+    nueve dd 9
+    treinta dd 30
+    final_line db 10 ; Salto de linea
+    
+section .bss
+    resultado_ascii resb 20    ; Buffer para el resultado en ASCII
+    
+section .text
+    global _start
+
+_start:
+    ; Cargar n en EAX
+    mov eax, [n]
+    
+    ; 1. Calcular n(n+1)
+    mov ebx, eax          ; ebx = n
+    inc ebx               ; ebx = n+1
+    imul ebx              ; edx:eax = n*(n+1)
+    mov r10, rax          ; Guardar n(n+1) en r10
+
+    ; 2. Calcular 6n^3 + 9n^2 + n - 1
+    mov eax, [n]          ; eax = n
+    mov ebx, eax          ; ebx = n
+    imul ebx              ; edx:eax = n^2
+    mov ecx, eax          ; ecx = n^2
+    imul ebx, [nueve]     ; ebx = 9n^2
+    
+    mov eax, [n]          ; eax = n
+    imul eax, ecx         ; edx:eax = n^3
+    imul eax, [seis]      ; edx:eax = 6n^3
+    
+    add ebx, eax          ; ebx = 9n^2 + 6n^3
+    add ebx, [n]          ; ebx = 6n^3 + 9n^2 + n
+    dec ebx               ; ebx = 6n^3 + 9n^2 + n - 1
+    
+    ; 3. Multiplicar por n(n+1)
+    mov eax, ebx          ; Mover el resultado del segundo término a EAX
+    imul r10d             ; edx:eax = [n(n+1)] * [6n^3 + 9n^2 + n - 1]
+    
+    ; 4. Dividir por 30
+    mov ecx, [treinta]
+    idiv ecx              ; eax = cociente, edx = residuo
+    
+    ; El resultado final está en EAX. Ahora lo convertimos a ASCII para imprimir.
+    mov r8, rax           ; r8 = resultado final (para la conversión)
+    mov r9, 0             ; r9 = contador para la longitud de la cadena
+    mov rdi, resultado_ascii + 19  ; Empezar desde el final del buffer
+
+.convert_loop:
+    xor rdx, rdx          ; Limpiar rdx para la división
+    mov rax, r8           ; r8 -> rax para la división
+    mov rbx, 10           ; Dividir por 10 para obtener cada dígito
+    div rbx               ; rax = cociente, rdx = residuo
+    add dl, '0'           ; Convertir residuo (dígito) a ASCII
+    dec rdi               ; Mover el puntero de destino
+    mov [rdi], dl         ; Guardar el dígito en el buffer
+    mov r8, rax           ; r8 = cociente para la siguiente iteración
+    inc r9                ; Incrementar el contador de longitud
+    cmp rax, 0            ; Si el cociente es 0, hemos terminado
+    jne .convert_loop
+    
+    ; 5. Imprimir el resultado
+    mov rax, 1            ; sys_write
+    mov rdi, 1            ; stdout
+    mov rsi, rdi          ; rsi apunta al inicio de la cadena
+    mov rbx, rsi          ; Guardar la dirección de inicio en RBX
+    add rbx, r9           ; Mover RBX al final de la cadena
+    sub rbx, 1            ; Ajustar para que apunte al último caracter
+    mov rdx, r9           ; Longitud de la cadena
+    syscall
+    
+    ; 6. Añadir un salto de línea para una mejor visualización
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, final_line
+    mov rdx, 1
+    syscall
+
+    ; Salir del programa
+    mov rax, 60
+    xor rdi, rdi
+    syscall
