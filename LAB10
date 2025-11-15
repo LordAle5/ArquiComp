@@ -1,0 +1,176 @@
+-----server------
+import socket
+import threading
+import csv
+import time
+
+HOST = '127.0.0.1'
+PORT = 65432
+
+def manejar_cliente(conn, addr):
+    print(f"Conectado por {addr}")
+    
+    try:
+        # a. (2 puntos) Thread lee el archivo
+        with open("Partes De Electrónica.csv", mode="r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            next(reader) # Saltamos la cabecera
+            
+            # b. (2 puntos) Iterar y enviar cada 1 segundo
+            for row in reader:
+                # row es una lista: ['1', 'Resistencia', 'R-100', '100', '5', '0.10']
+                # La convertimos a string separada por comas
+                mensaje = ",".join(row)
+                
+                conn.sendall(mensaje.encode('utf-8'))
+                print(f"Enviado: {mensaje}")
+                
+                time.sleep(1) # Pausa obligatoria
+                
+        # Avisamos al cliente que terminamos enviando una palabra clave
+        conn.sendall("FIN".encode('utf-8'))
+        
+    except Exception as e:
+        print(f"Error en servidor: {e}")
+    finally:
+        conn.close()
+        print("Conexión cerrada.")
+
+def iniciar_servidor():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((HOST, PORT))
+        s.listen()
+        print(f"Servidor listo en {HOST}:{PORT}")
+        
+        while True:
+            conn, addr = s.accept()
+            # Crear thread al conectarse un cliente
+            hilo = threading.Thread(target=manejar_cliente, args=(conn, addr))
+            hilo.start()
+            # Nota: No hacemos join() aquí para permitir que siga aceptando (aunque el lab pide 1 solo flujo, es buena práctica)
+
+if __name__ == "__main__":
+    iniciar_servidor()
+
+-----cliente------
+import socket
+import threading
+import queue
+
+HOST = '127.0.0.1'
+PORT = 65432
+
+# Cola para pasar mensajes del Hilo 1 al Hilo 2
+cola_datos = queue.Queue()
+
+# Candado para imprimir ordenado (opcional pero recomendado)
+lock = threading.Lock()
+
+# [cite_start]Variables globales para conteo [cite: 26]
+conteo_elevado = 0
+conteo_elevado_peso100 = 0
+conteo_bajo = 0
+
+def recibir_datos(sock):
+    """c. (1 punto) Thread encargado de recibir datos"""
+    while True:
+        try:
+            # Recibimos bytes y decodificamos a string
+            data = sock.recv(1024).decode('utf-8')
+            
+            if not data:
+                break
+            
+            if data == "FIN":
+                cola_datos.put("FIN")
+                break
+            
+            # Ponemos el string crudo en la cola (ej: "1,Resistencia,R-100...")
+            cola_datos.put(data)
+            
+        except Exception as e:
+            print(f"Error recibiendo: {e}")
+            break
+
+def procesar_datos():
+    """d. (3 puntos) Thread encargado de procesar"""
+    global conteo_elevado, conteo_elevado_peso100, conteo_bajo
+    
+    while True:
+        # Obtenemos el mensaje de la cola
+        mensaje = cola_datos.get()
+        
+        if mensaje == "FIN":
+            print("\n--- Fin de la transmisión ---")
+            break
+        
+        try:
+            # Convertimos el string "1,Resistencia,..." en lista ['1', 'Resistencia', ...]
+            fila = mensaje.split(",")
+            
+            # Indices según el CSV:
+            # [0]=ID, [1]=Nombre, [2]=NumParte, [3]=Cantidad, [4]=Peso, [5]=CostoUnit
+            nombre = fila[1]
+            cantidad = float(fila[3])
+            peso = float(fila[4])
+            precio_unit = float(fila[5])
+            
+            # [cite_start]1. Cálculo costo total [cite: 19]
+            costo_total = precio_unit * cantidad
+            
+            # [cite_start]2. Clasificación [cite: 21-25]
+            clasificacion = ""
+            
+            if costo_total < 25:
+                clasificacion = "Costo bajo"
+                with lock: conteo_bajo += 1
+                
+            elif 25 <= costo_total <= 49.9:
+                clasificacion = "Costo regular"
+                
+            elif 50 <= costo_total <= 74.9:
+                clasificacion = "Costo alto"
+                
+            else: # 75 a más
+                clasificacion = "Costo elevado"
+                with lock:
+                    conteo_elevado += 1
+                    if peso > 100:
+                        conteo_elevado_peso100 += 1
+            
+            # e. (2 puntos) [cite_start]Imprimir en terminal [cite: 27]
+            print(f"---Nombre: {nombre}--")
+            print(f"Costo total: {costo_total:.2f}")
+            print(f"Clasificación por costo: {clasificacion}")
+            print(f"Número de componentes con costo elevado: {conteo_elevado}")
+            print(f"Número de componentes con costo elevado y con peso mayor a 100g: {conteo_elevado_peso100}")
+            print(f"Número de componentes con costo bajo: {conteo_bajo}")
+            print("-" * 20)
+            
+        except Exception as e:
+            print(f"Error procesando datos: {e}")
+
+def iniciar_cliente():
+    # Crear el socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.connect((HOST, PORT))
+        
+        # Crear los dos threads solicitados
+        t1 = threading.Thread(target=recibir_datos, args=(s,))
+        t2 = threading.Thread(target=procesar_datos)
+        
+        t1.start()
+        t2.start()
+        
+        # Esperar a que terminen
+        t1.join()
+        t2.join()
+        
+    except Exception as e:
+        print(f"No se pudo conectar: {e}")
+    finally:
+        s.close()
+
+if __name__ == "__main__":
+    iniciar_cliente()
