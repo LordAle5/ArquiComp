@@ -1,0 +1,250 @@
+import ctypes
+import time
+import csv
+import os
+import matplotlib.pyplot as plt
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+
+try:
+    lib_cpu = ctypes.CDLL("./operaciones1.so")
+    lib_io = ctypes.CDLL("./operaciones2.so")
+except OSError as e:
+    print(f"ERROR: No se pudieron cargar las librerías: {e}")
+    exit(1)
+
+lib_cpu.calcular_nota_final.argtypes = [
+    ctypes.POINTER(ctypes.c_int), 
+    ctypes.c_int, 
+    ctypes.c_int, 
+    ctypes.c_int
+]
+lib_cpu.calcular_nota_final.restype = ctypes.c_double
+
+lib_cpu.calcular_media.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int]
+lib_cpu.calcular_media.restype = ctypes.c_double
+
+for func in [lib_cpu.calcular_moda, lib_cpu.calcular_min, lib_cpu.calcular_max]:
+    func.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int]
+    func.restype = ctypes.c_int
+
+lib_io.procesar_archivo_io.restype = ctypes.c_int
+
+
+DATOS_ALUMNOS = []
+COLUMNAS_C = []
+
+def cargar_datos_memoria():
+ 
+    global DATOS_ALUMNOS, COLUMNAS_C
+    
+    archivo_csv = "notas_alumnos.csv"
+    
+    if not os.path.exists(archivo_csv):
+        print(f"ERROR: No se encuentra '{archivo_csv}' en el directorio actual.")
+        print(f"Directorio actual: {os.getcwd()}")
+        exit(1)
+    
+    print(f"Cargando datos de {archivo_csv}...")
+    
+    try:
+        with open(archivo_csv, "r", encoding='utf-8') as f:
+            reader = csv.reader(f)
+            
+
+            try:
+                header = next(reader)
+            except StopIteration:
+                print("ERROR: El archivo CSV está vacío")
+                exit(1)
+            
+            if len(header) < 2:
+                print("ERROR: El CSV debe tener al menos 2 columnas (ID + notas)")
+                exit(1)
+            
+            cols_raw = {c: [] for c in header[1:]}
+            
+            filas_procesadas = 0
+            filas_con_error = 0
+            
+            for num_fila, row in enumerate(reader, start=2):
+                if not row or len(row) < 2:
+                    filas_con_error += 1
+                    continue
+                
+                try:
+               
+                    notas = [round(float(x)) for x in row[1:]]
+                    
+                   
+                    if not all(0 <= n <= 20 for n in notas):
+                        print(f"Advertencia fila {num_fila}: Notas fuera de rango [0-20]")
+                        filas_con_error += 1
+                        continue
+                    
+                    if len(notas) < 2:
+                        print(f"Advertencia fila {num_fila}: Faltan exámenes")
+                        filas_con_error += 1
+                        continue
+                    
+                    labs = notas[:-2]
+                    ex1, ex2 = notas[-2], notas[-1]
+                    
+                  
+                    arr_labs = (ctypes.c_int * len(labs))(*labs)
+                    DATOS_ALUMNOS.append((arr_labs, len(labs), ex1, ex2))
+                    
+  
+                    for i, v in enumerate(notas):
+                        cols_raw[header[i+1]].append(v)
+                    
+                    filas_procesadas += 1
+                    
+                except (ValueError, IndexError) as e:
+                    print(f"Error en fila {num_fila}: {e}")
+                    filas_con_error += 1
+                    continue
+
+            for col_name, lista in cols_raw.items():
+                if lista:
+                    arr = (ctypes.c_int * len(lista))(*lista)
+                    COLUMNAS_C.append((arr, len(lista)))
+            
+            print(f"Datos cargados: {filas_procesadas} alumnos procesados")
+            if filas_con_error > 0:
+                print(f" {filas_con_error} filas omitidas por errores")
+            
+            if filas_procesadas == 0:
+                print("ERROR")
+                exit(1)
+
+    except Exception as e:
+        print(f"ERROR inesperado al cargar CSV: {e}")
+        exit(1)
+
+
+def tarea_cpu():
+   
+   
+    for args in DATOS_ALUMNOS:
+        lib_cpu.calcular_nota_final(*args)
+    
+  
+    for arr, n in COLUMNAS_C:
+        lib_cpu.calcular_media(arr, n)
+        lib_cpu.calcular_moda(arr, n)
+        lib_cpu.calcular_min(arr, n)
+        lib_cpu.calcular_max(arr, n)
+
+def tarea_io():
+
+    resultado = lib_io.procesar_archivo_io()
+    return resultado
+
+
+WORKERS_LIST = [1, 2, 4, 8, 16]
+ITER_CPU = 5000
+ITER_IO = 500
+
+
+def _ejecutar_cpu_repetido(n_veces):
+
+    for _ in range(n_veces):
+        tarea_cpu()
+
+def _ejecutar_io_repetido(n_veces):
+   
+    for _ in range(n_veces):
+        tarea_io()
+
+def medir(executor, func, workers, iters):
+    
+    start = time.perf_counter()
+    
+    if workers == 1 and executor is None:
+   
+        for _ in range(iters):
+            func()
+    else:
+    
+        ops_por_worker = iters // workers
+        
+ 
+        if func == tarea_cpu:
+            wrapper_func = _ejecutar_cpu_repetido
+        else:
+            wrapper_func = _ejecutar_io_repetido
+        
+        with executor(max_workers=workers) as ex:
+            list(ex.map(wrapper_func, [ops_por_worker] * workers))
+    
+    return time.perf_counter() - start
+
+if __name__ == "__main__":
+ 
+ 
+    cargar_datos_memoria()
+    
+    results = {
+        "CPU": {"Threads": [], "Process": [], "Sec": 0},
+        "IO":  {"Threads": [], "Process": [], "Sec": 0}
+    }
+    
+
+    print("Midiendo ejecución secuencial...")
+    results["CPU"]["Sec"] = medir(None, tarea_cpu, 1, ITER_CPU)
+    print(f"  CPU secuencial: {results['CPU']['Sec']:.4f}s")
+    
+    results["IO"]["Sec"] = medir(None, tarea_io, 1, ITER_IO)
+    print(f"  IO secuencial:  {results['IO']['Sec']:.4f}s")
+
+    print("\nMidiendo con múltiples workers...")
+    for w in WORKERS_LIST:
+        print(f"\n  Workers = {w}")
+        
+       
+        t_thread = medir(ThreadPoolExecutor, tarea_cpu, w, ITER_CPU)
+        results["CPU"]["Threads"].append(t_thread)
+        print(f"    CPU Threading:       {t_thread:.4f}s")
+        
+        t_process = medir(ProcessPoolExecutor, tarea_cpu, w, ITER_CPU)
+        results["CPU"]["Process"].append(t_process)
+        print(f"    CPU Multiprocessing: {t_process:.4f}s")
+        
+
+        t_thread_io = medir(ThreadPoolExecutor, tarea_io, w, ITER_IO)
+        results["IO"]["Threads"].append(t_thread_io)
+        print(f"    IO Threading:        {t_thread_io:.4f}s")
+        
+        t_process_io = medir(ProcessPoolExecutor, tarea_io, w, ITER_IO)
+        results["IO"]["Process"].append(t_process_io)
+        print(f"    IO Multiprocessing:  {t_process_io:.4f}s")
+
+
+    print("\n--- GENERANDO GRÁFICAS ---")
+    
+    def plot_res(tipo, data, sec_time):
+       
+        plt.figure(figsize=(12, 7))
+        
+        plt.plot(WORKERS_LIST, data["Threads"], 'o-', 
+                 label='Threading', linewidth=2, markersize=8)
+        plt.plot(WORKERS_LIST, data["Process"], 's-', 
+                 label='Multiprocessing', linewidth=2, markersize=8)
+        plt.axhline(sec_time, color='r', linestyle='--', 
+                    label='Secuencial (baseline)', linewidth=2)
+        
+        plt.title(f"Benchmark {tipo}-Bound: Threading vs Multiprocessing", 
+                  fontsize=14, fontweight='bold')
+        plt.xlabel("Número de Workers", fontsize=12)
+        plt.ylabel("Tiempo (segundos)", fontsize=12)
+        plt.legend(fontsize=10)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        nombre_archivo = f"grafica_{tipo}.png"
+        plt.savefig(nombre_archivo, dpi=150)
+        plt.close()
+        print(f" {nombre_archivo}")
+
+    plot_res("CPU", results["CPU"], results["CPU"]["Sec"])
+    plot_res("IO", results["IO"], results["IO"]["Sec"])
