@@ -1,0 +1,181 @@
+
+
+
+
+
+
+1. Los Conceptos Maestros: Concurrencia vs. Paralelismo
+A menudo se confunden, pero no son lo mismo.
+
+Shutterstock
+Explorar
+
+Concurrencia (Estructura): Es la capacidad de un programa para gestionar múltiples tareas al mismo tiempo. No necesariamente se ejecutan a la vez; el sistema alterna entre ellas rápidamente.
+
+Ejemplo: Un solo chef picando cebolla, luego revolviendo la sopa, luego probando la salsa. Parece que hace todo a la vez, pero solo hace una cosa por instante.
+
+Paralelismo (Ejecución): Es la ejecución física y simultánea de múltiples tareas en diferentes núcleos del CPU.
+
+Ejemplo: Tres chefs en la cocina; uno pica, otro revuelve, otro prueba. Todos trabajan al mismo tiempo real.
+
+2. Las Unidades de Batalla: Proceso vs. Hilo
+Entender la diferencia de "peso" y "memoria" es vital para la arquitectura.
+
+A. Proceso (Process)
+Qué es: Una instancia de un programa aislado.
+
+Memoria: Privada. Cada proceso tiene su propio mapa de memoria virtual. Si el Proceso A cambia una variable, el Proceso B no se entera.
+
+Costo: Alto (Heavyweight). Crear un proceso (fork) y cambiar entre ellos (Context Switch) consume tiempo de CPU y RAM.
+
+Seguridad: Alta. Si un proceso falla (crash), no afecta a los demás.
+
+B. Hilo (Thread)
+Qué es: La unidad más pequeña de procesamiento dentro de un proceso.
+
+Memoria: Compartida. Todos los hilos de un proceso comparten el Heap (variables globales/objetos) y el Código. Solo tienen su propio Stack (variables locales).
+
+Costo: Bajo (Lightweight). Se crean rápido y cambiar entre ellos es barato.
+
+Peligro: Alto. Si un hilo corrompe la memoria compartida, mata a todo el proceso (y a todos los demás hilos).
+
+3. El Comportamiento según el Lenguaje (C vs. Python)
+Aquí es donde la teoría choca con la realidad.
+
+En Lenguaje C (Sin filtros)
+Tienes control total sobre el hardware.
+
+Threading (pthreads): Es Paralelismo Real. Si tienes 4 núcleos y lanzas 4 hilos, el Sistema Operativo pone uno en cada núcleo. Ideal para CPU-Bound (cálculos matemáticos pesados).
+
+Sincronización: Tú eres responsable. Debes usar Mutex (candados) para evitar que dos hilos escriban en la misma variable a la vez (Race Condition).
+
+En Python (El entorno gestionado)
+Python tiene un "cuidador" llamado GIL (Global Interpreter Lock).
+
+Threading (threading): Es Concurrencia, no Paralelismo. El GIL obliga a que solo un hilo ejecute instrucciones Python a la vez, aunque tengas 100 núcleos.
+
+Uso: Excelente para I/O-Bound (esperar redes, discos, bases de datos), ya que mientras un hilo espera, libera el GIL.
+
+Fallo: Pésimo para CPU-Bound.
+
+Multiprocessing (multiprocessing): La solución de Python para el paralelismo. Crea múltiples procesos (cada uno con su propio Python y su propio GIL).
+
+Resultado: Paralelismo Real, pero usa mucha más RAM.
+
+4. Tipos de Carga (¿Cuándo usar qué?)
+Para decidir tu arquitectura, debes saber qué hace tu código:
+
+Tipo de Tarea	Descripción	Cuello de Botella	Mejor Estrategia (Python)	Mejor Estrategia (C)
+CPU-Bound	Cálculos intensivos, matrices, compresión de video.	El Procesador	multiprocessing	pthreads (Hilos)
+I/O-Bound	Descargar archivos, leer BD, escribir en disco.	La Entrada/Salida	threading	Hilos asíncronos o select/poll
+
+Exportar a Hojas de cálculo
+
+Resumen Visual de Riesgos
+Race Condition (Condición de Carrera): El error clásico de los hilos. Ocurre cuando el resultado depende del orden aleatorio en que los hilos acceden a un dato compartido.
+
+Deadlock (Abrazo Mortal): El Hilo A espera al Hilo B, y el Hilo B espera al Hilo A. El programa se congela para siempre.
+
+Overhead: Crear demasiados hilos/procesos puede hacer que el sistema pase más tiempo gestionándolos (cambios de contexto) que haciendo el trabajo real.
+
+¿Te ayuda este mapa mental a conectar los puntos de lo que hemos visto en el laborato
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
